@@ -1,7 +1,7 @@
 import io
 from fastapi import FastAPI, UploadFile, File, Response
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image
+from PIL import Image, ImageOps
 
 app = FastAPI(title="Image Compressor API")
 
@@ -17,33 +17,32 @@ async def compress_image(file: UploadFile = File(...), quality: int = 85):
     contents = await file.read()
     img = Image.open(io.BytesIO(contents))
     
-    # PNG ke liye extra optimization
-    if img.format == "PNG":
-        # Color reduce (lossy feel deta hai lekin quality achhi rakhta hai)
-        if img.mode in ("RGBA", "RGB"):
-            img = img.convert("P", palette=Image.ADAPTIVE, colors=256)
+    # Convert to RGB if it has alpha (for better compression)
+    if img.mode in ('RGBA', 'LA', 'P'):
+        img = img.convert('RGB')
     
-    # Output buffer
     bio = io.BytesIO()
     
-    if img.format == "JPEG" or img.format == "JPG":
+    if img.format in ['JPEG', 'JPG']:
+        # Lossy compression for JPEG
         img.save(bio, format="JPEG", quality=quality, optimize=True)
-        output_format = "JPEG"
-        filename = file.filename.rsplit('.', 1)[0] + "_compressed.jpg"
+        ext = "jpg"
     else:
-        # PNG ke liye best optimization
+        # PNG ke liye strong optimization
+        img = ImageOps.optimize(img)
         img.save(bio, format="PNG", optimize=True, compress_level=9)
-        output_format = "PNG"
-        filename = file.filename.rsplit('.', 1)[0] + "_compressed.png"
+        ext = "png"
     
     bio.seek(0)
     
+    filename = file.filename.rsplit('.', 1)[0] + f"_compressed.{ext}"
+    
     return Response(
         content=bio.getvalue(),
-        media_type=f"image/{output_format.lower()}",
+        media_type=f"image/{ext}",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 @app.get("/")
 async def root():
-    return {"message": "Image Compressor API Ready! /compress endpoint use karo."}
+    return {"message": "Image Compressor API Ready! Use /compress endpoint"}
